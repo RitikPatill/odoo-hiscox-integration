@@ -1,0 +1,425 @@
+Directory Structure:
+
+|-- addons
+    |-- odoo_hiscox_integration
+        |-- models
+            |-- hiscox_case.py
+            |-- __init__.py
+        |-- security
+            |-- ir.model.access.csv
+        |-- services
+            |-- hiscox_api.py
+            |-- logger.py
+            |-- qr_generator.py
+            |-- __init__.py
+        |-- views
+            |-- hiscox_case_views.xml
+        |-- __init__.py
+        |-- __manifest__.py
+|-- docker-compose.yml
+|-- structure.txt
+
+
+File Contents:
+
+
+----------------------------------------
+Content of hiscox_case.py:
+
+from odoo import models, fields, api
+from ..services.qr_generator import generate_qr_code
+from ..services.logger import log_error
+from ..services.hiscox_api import submit_to_hiscox, check_status_from_hiscox
+
+
+class HiscoxCase(models.Model):
+    _name = "edited.hiscox.case"
+    _description = "Hiscox Application Case"
+
+    name = fields.Char(string="Customer Name", required=True)
+    email = fields.Char(string="Email", required=True)
+    phone = fields.Char(string="Phone", required=True)
+    application_status = fields.Selection([
+        ('pending', 'Pending'),
+        ('submitted', 'Submitted'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected')
+    ], string="Application Status", default="pending")
+
+    qr_code = fields.Binary(string="QR Code")
+
+    @api.model
+    def create(self, vals):
+        """Generate QR code upon record creation."""
+        try:
+            qr_data = f"{vals.get('name')}|{vals.get('email')}|{vals.get('phone')}"
+            vals['qr_code'] = generate_qr_code(qr_data)
+        except Exception as e:
+            log_error(f"QR Code generation failed: {str(e)}")
+        return super(HiscoxCase, self).create(vals)
+
+    # -------------------------------------------------------
+    # Button-Based Workflow Methods
+    # -------------------------------------------------------
+
+    def action_submit(self):
+        """
+        Call the Hiscox API to submit the case.
+        If successful, set status to 'submitted'.
+        """
+        try:
+            response = submit_to_hiscox(self)
+            if response:
+                self.application_status = 'submitted'
+            else:
+                log_error("Failed to submit to Hiscox (no response or invalid response).")
+        except Exception as e:
+            log_error(f"Failed to submit to Hiscox: {str(e)}")
+
+    def action_approve(self):
+        """
+        Approve the case manually.
+        (No API call here, but you can add one if needed.)
+        """
+        self.application_status = 'approved'
+
+    def action_reject(self):
+        """
+        Reject the case manually.
+        (No API call here, but you can add one if needed.)
+        """
+        self.application_status = 'rejected'
+
+    def action_check_status(self):
+        """
+        Query the Hiscox API for the current status of this case.
+        If a new status is returned, update our record accordingly.
+        """
+        try:
+            new_status = check_status_from_hiscox(self.id)
+            if new_status:
+                self.application_status = new_status
+        except Exception as e:
+            log_error(f"Failed to check status from Hiscox: {str(e)}")
+
+----------------------------------------
+
+
+----------------------------------------
+Content of __init__.py:
+
+from . import hiscox_case  # This ensures Odoo loads the model properly
+
+----------------------------------------
+
+
+----------------------------------------
+Content of ir.model.access.csv:
+
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_hiscox_case,access.hiscox.case,model_edited_hiscox_case,,1,1,1,1
+
+----------------------------------------
+
+
+----------------------------------------
+Content of hiscox_api.py:
+
+import requests
+from .logger import log_error
+
+# Replace this with your actual Beeceptor endpoint (or any mock/real API URL)
+API_BASE_URL = "https://hiscoxapi.free.beeceptor.com"
+
+def submit_to_hiscox(case_record):
+    """
+    Sends the case data to the mock Hiscox API via a POST request.
+    Returns the JSON response if successful, otherwise None.
+    """
+    try:
+        # Construct the endpoint and payload
+        url = f"{API_BASE_URL}/v1/applications"  # If your Beeceptor rule is /v1/applications
+        data = {
+            "name": case_record.name,
+            "email": case_record.email,
+            "phone": case_record.phone,
+        }
+
+        # Perform the POST request
+        response = requests.post(url, json=data)
+        response.raise_for_status()  # Raises an error if status != 2xx
+
+        # Return the parsed JSON, e.g. {"id":123, "status":"submitted"}
+        return response.json()
+
+    except Exception as e:
+        log_error(f"Failed to submit to Hiscox: {str(e)}")
+        return None
+
+def check_status_from_hiscox(case_id):
+    """
+    Fetches the updated status from the mock Hiscox API via a GET request.
+    Returns the 'status' field if successful, otherwise None.
+    """
+    try:
+        # Construct the endpoint for retrieving status
+        url = f"{API_BASE_URL}/v1/applications/{case_id}/status"
+        response = requests.get(url)
+        response.raise_for_status()
+
+        data = response.json()
+        # e.g. {"status": "approved"}
+        return data.get("status")
+
+    except Exception as e:
+        log_error(f"Failed to check status from Hiscox: {str(e)}")
+        return None
+
+----------------------------------------
+
+
+----------------------------------------
+Content of logger.py:
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+def log_error(message):
+    """Logs errors in Odoo's server logs."""
+    _logger.error(message)
+
+----------------------------------------
+
+
+----------------------------------------
+Content of qr_generator.py:
+
+import base64
+import qrcode
+from io import BytesIO
+
+def generate_qr_code(data):
+    """Generates a QR code from the given data and returns it as a base64-encoded string."""
+    try:
+        qr = qrcode.make(data)
+        buffer = BytesIO()
+        qr.save(buffer, format="PNG")
+        return base64.b64encode(buffer.getvalue()).decode()
+    except Exception as e:
+        return None  # Handle errors in model logic
+
+----------------------------------------
+
+
+----------------------------------------
+Content of __init__.py:
+
+from . import logger
+from . import qr_generator
+from . import hiscox_api
+
+----------------------------------------
+
+
+----------------------------------------
+Content of hiscox_case_views.xml:
+
+<odoo>
+    <!-- Kanban View -->
+    <record id="view_hiscox_case_kanban" model="ir.ui.view">
+        <field name="name">hiscox.case.kanban</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="application_status"
+                    decoration-success="application_status == 'approved'"
+                    decoration-danger="application_status == 'rejected'"
+                    decoration-info="application_status == 'submitted'"
+                    decoration-muted="application_status == 'pending'">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="phone"/>
+                <field name="application_status"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click">
+                            <strong><field name="name"/></strong>
+                            <div><field name="application_status"/></div>
+                            <div><field name="email"/></div>
+                            <div><field name="phone"/></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_hiscox_case_tree" model="ir.ui.view">
+        <field name="name">hiscox.case.tree</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <tree string="Hiscox Cases"
+                  decoration-success="application_status == 'approved'"
+                  decoration-danger="application_status == 'rejected'"
+                  decoration-info="application_status == 'submitted'"
+                  decoration-muted="application_status == 'pending'">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="phone"/>
+                <field name="application_status"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Form View with Notebook Tabs and Button-Based Workflow -->
+    <record id="view_hiscox_case_form" model="ir.ui.view">
+        <field name="name">hiscox.case.form</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <form string="Hiscox Application">
+                <sheet>
+                    <notebook>
+                        <page string="Customer Info">
+                            <group>
+                                <field name="name"/>
+                                <field name="email"/>
+                                <field name="phone"/>
+                            </group>
+                        </page>
+                        <page string="Status and QR Code">
+                            <group>
+                                <!-- Read-only statusbar -->
+                                <field name="application_status"
+                                       widget="statusbar"
+                                       options="{'clickable': '0'}"
+                                       statusbar_visible="pending,submitted,approved,rejected"
+                                       statusbar_colors="pending:grey,submitted:blue,approved:green,rejected:red"/>
+                                <field name="qr_code" widget="image"/>
+                            </group>
+                        </page>
+                    </notebook>
+                    <footer>
+                        <!-- Submit button: visible only if status == 'pending' -->
+                        
+                        <button name="action_submit"
+        string="Submit"
+        type="object"
+        class="oe_highlight"/>
+
+
+                        <!-- Approve button: visible only if status == 'submitted' -->
+                        <button name="action_approve"
+                                string="Approve"
+                                type="object"
+                                class="oe_highlight"
+                                attrs="{'invisible': [('application_status','!=','submitted')]}"/>
+
+                        <!-- Reject button: visible only if status == 'submitted' -->
+                        <button name="action_reject"
+                                string="Reject"
+                                type="object"
+                                class="btn-secondary"
+                                attrs="{'invisible': [('application_status','!=','submitted')]}"/>
+
+                        <!-- Existing Check Status button -->
+                        <button name="action_check_status"
+                                string="Check Status"
+                                type="object"/>
+                    </footer>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action referencing Kanban, Tree, and Form -->
+    <record id="action_hiscox_case" model="ir.actions.act_window">
+        <field name="name">Hiscox Cases</field>
+        <field name="res_model">edited.hiscox.case</field>
+        <field name="view_mode">kanban,tree,form</field>
+    </record>
+
+    <!-- Menu Items -->
+    <menuitem id="menu_hiscox_root"
+              name="Hiscox Integration"/>
+    <menuitem id="menu_hiscox_cases"
+              name="Cases"
+              parent="menu_hiscox_root"
+              action="action_hiscox_case"/>
+</odoo>
+
+----------------------------------------
+
+
+----------------------------------------
+Content of __init__.py:
+
+from . import models  # Only import models
+
+----------------------------------------
+
+
+----------------------------------------
+Content of __manifest__.py:
+
+{
+    'name': 'Odoo Hiscox Integration',
+    'version': '1.0',
+    'category': 'Custom',
+    'summary': 'Integration with Hiscox API and QR Code generation',
+    'description': 'Module to manage customer applications, create a QR code, and integrate with Hiscox API.',
+    'author': 'Ritik Patil',
+    'depends': ['base'],
+    'data': [
+        'security/ir.model.access.csv',
+        'views/hiscox_case_views.xml',
+    ],
+    'installable': True,
+    'application': True,
+}
+
+----------------------------------------
+
+
+----------------------------------------
+Content of docker-compose.yml:
+
+version: '3.1'
+
+services:
+  web:
+    image: odoo:16.0
+    depends_on:
+      - db
+    ports:
+      - "8069:8069"
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ./addons:/mnt/extra-addons
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+      - DATABASE=postgres
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+
+volumes:
+  odoo-web-data:
+  odoo-db-data:
+
+----------------------------------------
+
+
+----------------------------------------
+Content of structure.txt:
+
+
+----------------------------------------
+

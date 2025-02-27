@@ -1,0 +1,122 @@
+<odoo>
+    <!-- Kanban View -->
+    <record id="view_hiscox_case_kanban" model="ir.ui.view">
+        <field name="name">hiscox.case.kanban</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="application_status"
+                    decoration-success="application_status == 'approved'"
+                    decoration-danger="application_status == 'rejected'"
+                    decoration-info="application_status == 'submitted'"
+                    decoration-muted="application_status == 'pending'">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="phone"/>
+                <field name="application_status"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click">
+                            <strong><field name="name"/></strong>
+                            <div><field name="application_status"/></div>
+                            <div><field name="email"/></div>
+                            <div><field name="phone"/></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_hiscox_case_tree" model="ir.ui.view">
+        <field name="name">hiscox.case.tree</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <tree string="Hiscox Cases"
+                  decoration-success="application_status == 'approved'"
+                  decoration-danger="application_status == 'rejected'"
+                  decoration-info="application_status == 'submitted'"
+                  decoration-muted="application_status == 'pending'">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="phone"/>
+                <field name="application_status"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Form View with Notebook Tabs and Button-Based Workflow -->
+    <record id="view_hiscox_case_form" model="ir.ui.view">
+        <field name="name">hiscox.case.form</field>
+        <field name="model">edited.hiscox.case</field>
+        <field name="arch" type="xml">
+            <form string="Hiscox Application">
+                <sheet>
+                    <notebook>
+                        <page string="Customer Info">
+                            <group>
+                                <field name="name"/>
+                                <field name="email"/>
+                                <field name="phone"/>
+                            </group>
+                        </page>
+                        <page string="Status and QR Code">
+                            <group>
+                                <!-- Read-only statusbar -->
+                                <field name="application_status"
+                                       widget="statusbar"
+                                       options="{'clickable': '0'}"
+                                       statusbar_visible="pending,submitted,approved,rejected"
+                                       statusbar_colors="pending:grey,submitted:blue,approved:green,rejected:red"/>
+                                <field name="qr_code" widget="image"/>
+                            </group>
+                        </page>
+                    </notebook>
+                    <footer>
+                        <!-- Submit button: visible only if status == 'pending' -->
+                        
+                        <button name="action_submit"
+        string="Submit"
+        type="object"
+        class="oe_highlight"/>
+
+
+                        <!-- Approve button: visible only if status == 'submitted' -->
+                        <button name="action_approve"
+                                string="Approve"
+                                type="object"
+                                class="oe_highlight"
+                                attrs="{'invisible': [('application_status','!=','submitted')]}"/>
+
+                        <!-- Reject button: visible only if status == 'submitted' -->
+                        <button name="action_reject"
+                                string="Reject"
+                                type="object"
+                                class="btn-secondary"
+                                attrs="{'invisible': [('application_status','!=','submitted')]}"/>
+
+                        <!-- Existing Check Status button -->
+                        <button name="action_check_status"
+                                string="Check Status"
+                                type="object"/>
+                    </footer>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action referencing Kanban, Tree, and Form -->
+    <record id="action_hiscox_case" model="ir.actions.act_window">
+        <field name="name">Hiscox Cases</field>
+        <field name="res_model">edited.hiscox.case</field>
+        <field name="view_mode">kanban,tree,form</field>
+    </record>
+
+    <!-- Menu Items -->
+    <menuitem id="menu_hiscox_root"
+              name="Hiscox Integration"/>
+    <menuitem id="menu_hiscox_cases"
+              name="Cases"
+              parent="menu_hiscox_root"
+              action="action_hiscox_case"/>
+</odoo>
